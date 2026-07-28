@@ -1,0 +1,22 @@
+# 心測中心歷屆試題原始 PDF（版權所有）
+*.pdf
+*.pdf.*
+
+# Windows 系統檔案
+Thumbs.db
+Desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+venv/
+.venv/
+
+# 編輯器暫存檔
+*.swp
+*.swo
+*~
+.DS_Store
