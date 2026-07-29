@@ -119,7 +119,7 @@ class EDSAnalyzer:
             return pd.Series(0.5, index=s.index)
         return (s - s.min()) / (s.max() - s.min())
 
-    def module_d_priority_score(self, mode: str = 'A++') -> pd.DataFrame:
+    def module_d_priority_score(self, mode: str = "A++", personal_modifiers: dict = None) -> pd.DataFrame:
         """D-1 Priority Score & D-3 ROI & D-4 ROI Ranking"""
         if self.df.empty: return pd.DataFrame()
 
@@ -166,12 +166,24 @@ class EDSAnalyzer:
         }
         w1, w2, w3, w4 = weights_map.get(mode, weights_map['A++'])
 
-        merged['Priority_Score'] = (
+        base_priority = (
             w1 * self._normalize(merged['出現次數']) +
             w2 * self._normalize(100 - merged['平均通過率']) +
             w3 * self._normalize(merged['穩定度分數']) +
             w4 * self._normalize(merged['次代碼平均數'])
         ) * 100 # Scale to 100 for readability
+
+        # Apply Adaptive Engine modifiers if provided
+        if personal_modifiers:
+            def apply_modifier(row):
+                code = row['X軸主代碼']
+                mod = personal_modifiers.get(code, 1.0)
+                return row['Base_Priority'] * mod
+
+            merged['Base_Priority'] = base_priority
+            merged['Priority_Score'] = merged.apply(apply_modifier, axis=1)
+        else:
+            merged['Priority_Score'] = base_priority
 
         # D-3 Calculate Expected Score Gain (ROI = Priority / Estimated Hours)
         # Avoid division by zero

@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 from src.analyzer import EDSAnalyzer
+from src.adaptive_engine import AdaptiveEngine
 
 def generate_decision_graph(data_path: str, output_path: str, available_hours: float = 2.0, target_mode: str = 'A++'):
     """Generates the text-based Application Layer Output (決勝圖譜)."""
@@ -12,9 +13,14 @@ def generate_decision_graph(data_path: str, output_path: str, available_hours: f
         print("Data is empty. Cannot generate graph.")
         return
 
-    # Run Decision Engine
+    # Read personal dynamic data from RDQ
+    adaptive_engine = AdaptiveEngine()
+    modifiers = adaptive_engine.get_priority_modifiers()
+    latest_weakness = adaptive_engine.get_latest_weakness_summary()
+
+    # Run Decision Engine with personal modifiers
     print(f"Running Decision Engine (Target: {target_mode})...")
-    roi_df = analyzer.module_d_priority_score(mode=target_mode)
+    roi_df = analyzer.module_d_priority_score(mode=target_mode, personal_modifiers=modifiers)
     trap_df = analyzer.module_b_trap_analysis()
 
     if roi_df.empty:
@@ -38,6 +44,14 @@ def generate_decision_graph(data_path: str, output_path: str, available_hours: f
 
     # Output generation
     output_lines = []
+
+    # Handoff greeting if RDQ data is present
+    if latest_weakness:
+        rdq_topic = latest_weakness.get('topic')
+        rdq_reason = latest_weakness.get('reason', '觀念不夠熟練')
+        output_lines.append(f"收到 RDQ 傳來的資料！我看到你在『{rdq_topic}』的「{rdq_reason}」上還有點卡關。")
+        output_lines.append(f"距離實戰越來越近，我們今天先不念課本，直接來看歷屆會考最常考的題型，準備好了嗎？\n")
+
     output_lines.append(f"📅 今天（{available_hours} 小時）該讀：\n")
 
     for i, topic in enumerate(selected_topics):
