@@ -30,6 +30,10 @@ class MatrixParser:
             if matches:
                 results[filename] = matches
 
+
+            if matches:
+                results[filename] = matches
+
         return results
 
 if __name__ == "__main__":

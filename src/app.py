@@ -25,7 +25,7 @@ with col1:
                 st.success("解析完成！")
 
                 # Tabs for different outputs
-                tab1, tab2, tab3 = st.tabs(["Markdown 筆記", "心智圖 (Mermaid)", "課後測驗"])
+                tab1, tab2, tab3 = st.tabs(["Markdown 筆記", "心智圖 (Mermaid)", "隨堂考卷 (API串接)"])
 
                 with tab1:
                     md_text = processor.render_markdown(json_result)
@@ -37,8 +37,19 @@ with col1:
                     st.markdown("*(可複製至 [Mermaid Live Editor](https://mermaid.live/) 查看)*")
 
                 with tab3:
-                    quiz_text = processor.generate_quiz(json_result)
-                    st.markdown(quiz_text)
+                    from src.generate_eds_exam import get_pop_quiz
+                    import json
+
+                    st.markdown("### 📝 自動派題引擎 - 隨堂小考")
+                    # Dynamically pull the code from the first node for the demo
+                    first_node = json_result.get("nodes", [{}])[0]
+                    target_code = first_node.get("eds_x_code")
+
+                    if target_code:
+                        quiz_json = get_pop_quiz(target_code)
+                        st.json(json.loads(quiz_json))
+                    else:
+                        st.warning("無法從筆記中擷取有效的課綱代碼以產生測驗。")
         else:
             st.warning("請先輸入文本。")
 
@@ -60,14 +71,37 @@ with col2:
             f.write("111,2,生物,Bc-Ⅳ-3,Bc-Ⅳ-4,tr-Ⅳ-1,圖表判讀,25,推理不足,高,1.5\n")
             f.write("112,6,地科,Eb-Ⅳ-2,,po-Ⅳ-1,實驗設計,75,概念錯誤,高,1\n")
 
-    if st.button("🎯 產出決勝圖譜"):
+    if st.button("📊 產出決勝圖譜"):
         with st.spinner("讀取 RDQ 資料庫與計算 ROI..."):
             try:
-                # 這裡需要 generate_graph_text, 稍後修改 generate_graph.py
                 result_text = generate_decision_graph_text(default_csv, available_hours=hours, target_mode=target)
-                st.text_area("決策輸出：", value=result_text, height=400)
+                st.text_area("決策輸出：", value=result_text, height=300)
+                st.session_state['graph_generated'] = True
             except Exception as e:
                 st.error(f"發生錯誤：{e}")
+
+    if st.session_state.get('graph_generated'):
+        if st.button("🎯 開始特訓 (API 組卷)"):
+            with st.spinner("正在為您專屬派題..."):
+                from src.generate_eds_exam import get_exam_for_topics
+                import json
+                from src.analyzer import EDSAnalyzer
+                from src.adaptive_engine import AdaptiveEngine
+
+                # Re-run analyzer briefly to get top topics (in reality, pass this from state)
+                analyzer = EDSAnalyzer(default_csv)
+                engine = AdaptiveEngine()
+                mods = engine.get_priority_modifiers()
+                roi_df = analyzer.module_d_priority_score(mode=target, personal_modifiers=mods)
+
+                if not roi_df.empty:
+                    # Take top 3 topics
+                    top_topics_dicts = roi_df.head(3).to_dict('records')
+                    exam_json = get_exam_for_topics(top_topics_dicts, num_questions=5)
+                    st.success("考卷組裝完成！")
+                    st.json(json.loads(exam_json))
+                else:
+                    st.error("無法取得優先主題以進行組卷。")
 
 st.markdown("---")
 st.caption("Ecosystem Integration: T2N Preprocessor -> RDQ Shared Schema -> EDS Decision Engine")
