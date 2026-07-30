@@ -2,8 +2,11 @@ import os
 import glob
 
 class MatrixParser:
-    def __init__(self, matrix_dir="references/knowledge-matrix"):
-        self.matrix_dir = matrix_dir
+    def __init__(self, matrix_dir="knowledge-matrix"):
+        # Resolve path relative to this script's directory for robustness
+        # Assuming src/matrix_parser.py, root is one level up
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.matrix_dir = os.path.join(base_dir, matrix_dir)
         self.files = glob.glob(os.path.join(self.matrix_dir, "*.md"))
 
     def search_matrix(self, keyword: str) -> dict:
