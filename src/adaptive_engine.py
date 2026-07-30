@@ -3,9 +3,17 @@ import pandas as pd
 import os
 
 class AdaptiveEngine:
-    def __init__(self, db_path="~/.rdq/review_index.db"):
-        # Expand user path if necessary, though in sandbox we might use local paths for testing
-        self.db_path = os.path.expanduser(db_path)
+    def __init__(self, db_path=None):
+        # 1. Use passed argument
+        # 2. Or use Environment Variable defined by RDQ-Shared-Schema
+        # 3. Fallback to default local path
+        if db_path:
+            self.db_path = db_path
+        else:
+            env_path = os.environ.get("ECOSYSTEM_DB_PATH")
+            self.db_path = env_path if env_path else "~/.education_ecosystem/review_index.db"
+
+        self.db_path = os.path.expanduser(self.db_path)
 
     def load_student_profile(self) -> pd.DataFrame:
         """
@@ -43,7 +51,15 @@ class AdaptiveEngine:
                 print("[AdaptiveEngine] Could not find a table with required schema (item_id, status) in DB.")
                 return pd.DataFrame()
 
-            query = f"SELECT item_id, status, loss_reason FROM {target_table}"
+            # Dynamically select columns based on what's available to prevent OperationalError
+            cursor.execute(f"PRAGMA table_info({target_table})")
+            actual_cols = [info[1] for info in cursor.fetchall()]
+
+            select_cols = ['item_id', 'status']
+            if 'loss_reason' in actual_cols:
+                select_cols.append('loss_reason')
+
+            query = f"SELECT {', '.join(select_cols)} FROM {target_table}"
             df = pd.read_sql_query(query, conn)
             conn.close()
 
