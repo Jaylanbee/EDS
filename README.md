@@ -13,8 +13,7 @@ EDS 是一套基於臺灣 108 課綱（12 年國教）的教育決策系統，�
 ```
 EDS/
 ├── methodology/          # EDS 方法論文件
-├── references/
-│   └── knowledge-matrix/ # 五科 108 課綱知識矩陣
+├── knowledge-matrix/     # 五科 108 課綱知識矩陣
 ├── exam-data/            # 歷屆試題標註資料
 └── outputs/              # 分析報告與決策產出
 ```
