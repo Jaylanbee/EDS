@@ -9,6 +9,7 @@ class MatrixParser:
         self.matrix_dir = os.path.join(base_dir, matrix_dir)
         self.files = glob.glob(os.path.join(self.matrix_dir, "*.md"))
 
+
     def search_matrix(self, keyword: str) -> dict:
         """
         Searches the knowledge matrix markdown files for the given keyword.

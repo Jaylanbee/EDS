@@ -3,31 +3,23 @@ import pandas as pd
 from src.analyzer import EDSAnalyzer
 from src.adaptive_engine import AdaptiveEngine
 
-def generate_decision_graph(data_path: str, output_path: str, available_hours: float = 2.0, target_mode: str = 'A++'):
-    """Generates the text-based Application Layer Output (決勝圖譜)."""
-
-    print(f"Initializing EDS Analyzer for data: {data_path}")
+def generate_decision_graph_text(data_path: str, available_hours: float = 2.0, target_mode: str = 'A++') -> str:
+    """Generates the text-based Application Layer Output (決勝圖譜) and returns it as a string."""
     analyzer = EDSAnalyzer(data_path)
 
     if analyzer.df.empty:
-        print("Data is empty. Cannot generate graph.")
-        return
+        return "Data is empty. Cannot generate graph."
 
-    # Read personal dynamic data from RDQ
     adaptive_engine = AdaptiveEngine()
     modifiers = adaptive_engine.get_priority_modifiers()
     latest_weakness = adaptive_engine.get_latest_weakness_summary()
 
-    # Run Decision Engine with personal modifiers
-    print(f"Running Decision Engine (Target: {target_mode})...")
     roi_df = analyzer.module_d_priority_score(mode=target_mode, personal_modifiers=modifiers)
     trap_df = analyzer.module_b_trap_analysis()
 
     if roi_df.empty:
-        print("Failed to calculate ROI. Exiting.")
-        return
+        return "Failed to calculate ROI."
 
-    # Pick subjects based on available hours
     selected_topics = []
     accumulated_hours = 0.0
 
@@ -35,17 +27,14 @@ def generate_decision_graph(data_path: str, output_path: str, available_hours: f
         est_time = row.get('預估補強時間', 2.0)
         if pd.isna(est_time): est_time = 2.0
 
-        # We try to fit topics up to slightly over available hours
         if accumulated_hours < available_hours:
             selected_topics.append(row)
             accumulated_hours += est_time
         else:
             break
 
-    # Output generation
     output_lines = []
 
-    # Handoff greeting if RDQ data is present
     if latest_weakness:
         rdq_topic = latest_weakness.get('topic')
         rdq_reason = latest_weakness.get('reason', '觀念不夠熟練')
@@ -61,11 +50,9 @@ def generate_decision_graph(data_path: str, output_path: str, available_hours: f
 
     output_lines.append(f"\n⏱ 預估投入：{accumulated_hours:.1f} 小時")
 
-    # Estimate score gain roughly (dummy logic for visual representation)
     score_gain_est = min(len(selected_topics) * 1.5, 5.0)
     output_lines.append(f"📈 預估提升：{score_gain_est:.1f} 分")
 
-    # Extract weak point from traps if possible
     main_weakness = "無明顯弱點資料"
     if not trap_df.empty:
          common_reasons = trap_df['失分原因'].value_counts()
@@ -74,16 +61,19 @@ def generate_decision_graph(data_path: str, output_path: str, available_hours: f
 
     output_lines.append(f"🎯 主要改善方向：{main_weakness}")
 
-    # Add a generic trap warning based on traps
     trap_warning = "請留意常見題型陷阱。"
     if not trap_df.empty:
-        # Get the code with the lowest pass rate
         worst_trap = trap_df.iloc[0]
         trap_warning = f"複習 {worst_trap['X軸主代碼']} 時，留意「{worst_trap['失分原因']}」相關陷阱。"
 
     output_lines.append(f"⚠️ 常見陷阱：{trap_warning}")
 
-    output_text = "\n".join(output_lines)
+    return "\n".join(output_lines)
+
+def generate_decision_graph(data_path: str, output_path: str, available_hours: float = 2.0, target_mode: str = 'A++'):
+    """Legacy wrapper for terminal execution."""
+    print(f"Initializing EDS Analyzer for data: {data_path}")
+    output_text = generate_decision_graph_text(data_path, available_hours, target_mode)
 
     # Write to file
     with open(output_path, 'w', encoding='utf-8') as f:

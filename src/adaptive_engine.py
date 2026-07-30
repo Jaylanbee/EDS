@@ -13,6 +13,7 @@ class AdaptiveEngine:
             env_path = os.environ.get("ECOSYSTEM_DB_PATH")
             self.db_path = env_path if env_path else "~/.education_ecosystem/review_index.db"
 
+
         self.db_path = os.path.expanduser(self.db_path)
 
     def load_student_profile(self) -> pd.DataFrame:
