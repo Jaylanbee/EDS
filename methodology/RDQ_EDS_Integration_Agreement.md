@@ -21,17 +21,14 @@
 為了讓 EDS 能將學生的弱點精準對應到我們的「知識矩陣」與「歷屆試題資料庫」，我們需要 RDQ 在 `review_index.db` (建議採用 SQLite 或標準 JSON/CSV 格式) 中，至少提供以下欄位（Schema）：
 
 ### 核心資料表：`student_weakness_log`
-| 欄位名稱 (Field) | 資料型態 | 必填 | 說明與 EDS 的用途 |
-|-----------------|---------|------|----------------|
-| `student_id` | String | 是 | 學生識別碼（未來若支援多帳號時備用）。 |
-| `timestamp` | Datetime| 是 | RDQ 記錄此弱點的時間。EDS 會藉此給予「近期弱點」較高的權重。 |
-| `x_axis_code` | String | 是 | **【最重要】** 對應 EDS 知識矩陣的代碼（如 `Bc-Ⅳ-3`）。EDS 必須靠此代碼與歷屆試題庫 JOIN，計算 ROI。若無此代碼，EDS 無法運作。 |
-| `mastery_level` | Float | 是 | 學生對此知識點的掌握度（建議範圍：0.0 ~ 1.0 或 0~100）。EDS 將用此數值反向調整 Priority Score，越低分排程越優先。 |
-| `error_type` | String | 否 | RDQ 探勘出的失分原因（如：`概念錯誤`、`計算錯誤`、`圖表判讀`）。若能提供，EDS 產出決勝圖譜時可直接加上對應的「防呆警告」。 |
-| `misconception` | String | 否 | 具體的迷思概念文字敘述。供 EDS 輸出時提醒學生用。 |
+| 欄位名稱 | RDQ 承諾的輸入格式 | EDS 的應用方式 |
+| :--- | :--- | :--- |
+| `item_id` | **(重要)** 盡可能對應 EDS Layer 1 知識矩陣的 X 軸代碼 (如 `Bc-Ⅳ-3`)，或附帶映射屬性 `eds_x_code`。 | EDS 藉此比對知識矩陣，算出該代碼的歷屆考題投資報酬率。 |
+| `status` | `confirmed` (✅掌握), `uncertain` (❓待確認), `clarified` (⚠️迷思已澄清) | EDS 應將 `uncertain` 和 `clarified` 視為高優先級的弱點打擊區，給予 Priority 權重提升。 |
+| `loss_reason` | `概念錯誤`、`計算錯誤`、`圖表判讀`、`推理不足`、`看錯題`。 | EDS 依此欄位客製化防錯提示與抽題類型。 |
 
 ### 協定要求：
-1. **SSOT (Single Source of Truth) 共識**：RDQ 在寫入 `x_axis_code` 時，必須**絕對遵守** EDS 提供的《知識矩陣》代碼表，不可自行創設新代碼，否則系統將無法對接。
+1. **SSOT (Single Source of Truth) 共識**：RDQ 在寫入 `item_id` 時，必須**盡可能遵守** EDS 提供的《知識矩陣》代碼表，否則 EDS 將無法比對歷屆試題資料庫以計算投資報酬率。
 2. **交接機制**：雙方確認 `review_index.db` 的存放路徑與更新頻率。EDS 將於每次使用者觸發「生成圖譜」時，即時讀取該檔案之最新狀態。
 
 ---
