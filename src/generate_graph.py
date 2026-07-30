@@ -52,18 +52,18 @@ def generate_decision_graph(data_path: str, output_path: str, available_hours: f
         output_lines.append(f"收到 RDQ 傳來的資料！我看到你在『{rdq_topic}』的「{rdq_reason}」上還有點卡關。")
         output_lines.append(f"距離實戰越來越近，我們今天先不念課本，直接來看歷屆會考最常考的題型，準備好了嗎？\n")
 
-    output_lines.append(f"📅 今天（{available_hours} 小時）該讀：\n")
+    output_lines.append(f"[今天]（{available_hours} 小時）該讀：\n")
 
     for i, topic in enumerate(selected_topics):
         topic_code = topic['X軸主代碼']
         stars = topic['評等']
         output_lines.append(f"{(i+1):02d} {topic_code}    效益 {stars}")
 
-    output_lines.append(f"\n⏱ 預估投入：{accumulated_hours:.1f} 小時")
+    output_lines.append(f"\n[預估投入]：{accumulated_hours:.1f} 小時")
 
     # Estimate score gain roughly (dummy logic for visual representation)
     score_gain_est = min(len(selected_topics) * 1.5, 5.0)
-    output_lines.append(f"📈 預估提升：{score_gain_est:.1f} 分")
+    output_lines.append(f"[預估提升]：{score_gain_est:.1f} 分")
 
     # Extract weak point from traps if possible
     main_weakness = "無明顯弱點資料"
@@ -72,7 +72,7 @@ def generate_decision_graph(data_path: str, output_path: str, available_hours: f
          if not common_reasons.empty:
              main_weakness = common_reasons.index[0]
 
-    output_lines.append(f"🎯 主要改善方向：{main_weakness}")
+    output_lines.append(f"[主要改善方向]：{main_weakness}")
 
     # Add a generic trap warning based on traps
     trap_warning = "請留意常見題型陷阱。"
@@ -81,7 +81,7 @@ def generate_decision_graph(data_path: str, output_path: str, available_hours: f
         worst_trap = trap_df.iloc[0]
         trap_warning = f"複習 {worst_trap['X軸主代碼']} 時，留意「{worst_trap['失分原因']}」相關陷阱。"
 
-    output_lines.append(f"⚠️ 常見陷阱：{trap_warning}")
+    output_lines.append(f"[常見陷阱]：{trap_warning}")
 
     output_text = "\n".join(output_lines)
 
