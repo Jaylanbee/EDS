@@ -1,41 +1,108 @@
 import json
 import os
 import requests
+from google import genai
+from google.genai import types
 
 class T2NProcessor:
     def __init__(self):
         # Allow connecting to local Ollama instance (default to the Shared-Schema env variable)
         env_url = os.environ.get("LOCAL_LLM_API_URL")
-        self.api_url = env_url if env_url else "http://localhost:11434/api/generate"
+        self.ollama_api_url = env_url if env_url else "http://localhost:11434/api/generate"
+
+        # Setup Gemini Client
+        self.gemini_keys = os.environ.get("GEMINI_API_KEYS", "").split(",")
+        self.current_key_idx = 0
+        if self.gemini_keys and self.gemini_keys[0]:
+            self.gemini_client = genai.Client(api_key=self.gemini_keys[self.current_key_idx].strip())
+        else:
+            self.gemini_client = None
+
+        self.system_prompt = """
+        You are the Textbook2Notes (T2N) preprocessor.
+        Analyze the following educational text. Extract key concepts and assign the correct 108 Curriculum 'eds_x_code'.
+        You MUST output ONLY a valid JSON object with the following schema:
+        {
+            "title": "String",
+            "is_out_of_matrix": Boolean,
+            "nodes": [
+                {
+                    "concept": "String",
+                    "details": "String",
+                    "eds_x_code": "String (e.g. Bc-Ⅳ-3)"
+                }
+            ]
+        }
+        """
+
+    def process_text(self, text_input: str, engine: str = "auto") -> dict:
+        """
+        Main entry point for UI. Handles routing and fallbacks based on engine selection.
+        engine options: 'auto' (Gemini -> Ollama -> Sim), 'gemini', 'ollama', 'simulation'
+        """
+        if engine in ["auto", "gemini"]:
+            if self.gemini_keys and self.gemini_keys[0]:
+                print("[T2N] Attempting Gemini API...")
+                result = self.invoke_gemini_llm(text_input)
+                if result:
+                    return result
+                if engine == "gemini":
+                    return self.simulate_llm_parsing(text_input) # Fallback to sim if strictly gemini requested but failed
+            elif engine == "gemini":
+                print("[T2N] Gemini API Key not configured. Falling back to simulation.")
+                return self.simulate_llm_parsing(text_input)
+
+        if engine in ["auto", "ollama"]:
+            print("[T2N] Attempting Ollama Local API...")
+            result = self.invoke_ollama_llm(text_input)
+            if result:
+                return result
+
+        print("[T2N] Falling back to Simulation.")
+        return self.simulate_llm_parsing(text_input)
+
+    def invoke_gemini_llm(self, text_input: str) -> dict:
+        """Integration with Google Gemini API, including key rotation retry."""
+        if not self.gemini_client:
+            return None
+
+        max_retries = len(self.gemini_keys) if self.gemini_keys else 1
+
+        for attempt in range(max_retries):
+            try:
+                response = self.gemini_client.models.generate_content(
+                    model='gemini-1.5-flash',
+                    contents=text_input,
+                    config=types.GenerateContentConfig(
+                        system_instruction=self.system_prompt,
+                        response_mime_type="application/json",
+                    ),
+                )
+                return json.loads(response.text)
+
+            except Exception as e:
+                print(f"[Gemini API Error - Attempt {attempt+1}/{max_retries}] {e}")
+                # Rotate key on ResourceExhausted (429)
+                if "429" in str(e) and len(self.gemini_keys) > 1:
+                    print("Rate limit hit. Rotating to next key and retrying...")
+                    self.current_key_idx = (self.current_key_idx + 1) % len(self.gemini_keys)
+                    self.gemini_client = genai.Client(api_key=self.gemini_keys[self.current_key_idx].strip())
+                else:
+                    # Break on other errors (e.g., auth failure, bad request)
+                    break
+
+        return None
 
     def invoke_ollama_llm(self, text_input: str, model_name: str = "llama3") -> dict:
         """
         Real integration with local Ollama LLM API (Phase 4).
         It forces the model to output the JSON schema.
         """
-        prompt = f"""
-        You are the Textbook2Notes (T2N) preprocessor.
-        Analyze the following educational text. Extract key concepts and assign the correct 108 Curriculum 'eds_x_code'.
-        You MUST output ONLY a valid JSON object with the following schema:
-        {{
-            "title": "String",
-            "is_out_of_matrix": Boolean,
-            "nodes": [
-                {{
-                    "concept": "String",
-                    "details": "String",
-                    "eds_x_code": "String (e.g. Bc-Ⅳ-3)"
-                }}
-            ]
-        }}
-
-        Text to analyze:
-        {text_input}
-        """
+        prompt = self.system_prompt + f"\n\nText to analyze:\n{text_input}"
 
         try:
             response = requests.post(
-                self.api_url,
+                self.ollama_api_url,
                 json={
                     "model": model_name,
                     "prompt": prompt,
@@ -51,8 +118,8 @@ class T2NProcessor:
                 print(f"LLM API Error: {response.status_code}")
                 return self.simulate_llm_parsing(text_input)
         except Exception as e:
-            print(f"Failed to connect to Local LLM at {self.api_url}: {e}. Falling back to simulation.")
-            return self.simulate_llm_parsing(text_input)
+            print(f"Failed to connect to Local LLM at {self.ollama_api_url}: {e}. Falling back to simulation.")
+            return None
 
     def simulate_llm_parsing(self, text_input: str) -> dict:
         """

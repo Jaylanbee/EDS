@@ -14,14 +14,22 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.header("1. 知識建構 (Textbook2Notes)")
+    engine_choice = st.radio("選擇 AI 引擎：", ["Auto (Gemini優先/Ollama備援)", "Gemini API", "Ollama 本地", "模擬模式"], horizontal=True)
+
+    engine_map = {
+        "Auto (Gemini優先/Ollama備援)": "auto",
+        "Gemini API": "gemini",
+        "Ollama 本地": "ollama",
+        "模擬模式": "simulation"
+    }
+
     text_input = st.text_area("請貼上課文或筆記內容：", height=200, placeholder="光合作用分為光反應與暗反應...")
 
     if st.button("🚀 執行 T2N 解析"):
         if text_input.strip():
             with st.spinner("AI 處理中..."):
                 processor = T2NProcessor()
-                # Try real LLM, falls back to simulation if Ollama isn't running
-                json_result = processor.invoke_ollama_llm(text_input)
+                json_result = processor.process_text(text_input, engine=engine_map[engine_choice])
 
                 st.success("解析完成！")
 
@@ -82,32 +90,43 @@ with col2:
                 st.error(f"發生錯誤：{e}")
 
     if st.session_state.get('graph_generated'):
-        if st.button("🎯 開始特訓 (API 組卷)"):
-            with st.spinner("正在為您專屬派題..."):
+        st.markdown("### ⚠️ PME 考前高壓特訓系統 (Phase 1: PLAN)")
+
+        with st.expander("📝 點此設定今日作戰計畫 (未設定不准派題)", expanded=True):
+            pme_goal = st.text_input("1. 今天打擊哪個目標代碼？", placeholder="例如: Bc-Ⅳ-3")
+            pme_status = st.selectbox("2. 該目標目前燈號狀態？", ["🔴 慘不忍睹 (概念錯誤)", "🟡 似懂非懂 (推理不足)", "🟢 粗心大意 (看錯題)"])
+            pme_strategy = st.text_area("3. 預計做幾題及求救策略？", placeholder="預計做5題，卡住時會先掙扎3分鐘再看解答。")
+
+            pme_ready = st.button("我已完成承諾，開始特訓！")
+
+        if pme_ready and pme_goal:
+            with st.spinner("正在為您專屬派題 (PME 模式)..."):
                 from src.generate_eds_exam import get_exam_for_topics
                 import json
                 from src.analyzer import EDSAnalyzer
                 from src.adaptive_engine import AdaptiveEngine
 
-                # Re-run analyzer briefly to get top topics (in reality, pass this from state)
                 analyzer = EDSAnalyzer(default_csv)
                 engine = AdaptiveEngine()
                 mods = engine.get_priority_modifiers()
                 roi_df = analyzer.module_d_priority_score(mode=target, personal_modifiers=mods)
 
                 if not roi_df.empty:
-                    # Take top 3 topics
                     top_topics_dicts = roi_df.head(3).to_dict('records')
                     exam_json = json.loads(get_exam_for_topics(top_topics_dicts, num_questions=5))
                     st.session_state['current_exam'] = exam_json
-                    st.success("考卷組裝完成！")
+                    st.session_state['pme_streak'] = 0 # Track correct answers for Learning Zone
+                    st.success("考卷組裝完成！進入 MONITOR 階段。")
                 else:
                     st.error("無法取得優先主題以進行組卷。")
 
     # Render interactive Exam Mock if exists
     if 'current_exam' in st.session_state:
         from src.db_writer import record_wrong_answer
-        st.markdown("### 📝 實戰演練 (Exam Mock)")
+        st.markdown("---")
+        st.markdown("### ⚔️ 實戰演練 (Phase 2: MONITOR)")
+        st.caption("🚨 **流暢性幻覺警報**：若連續答對，難度將自動升階；卡住時請遵守「3 分鐘掙扎原則」。")
+
         exam = st.session_state['current_exam']
         st.subheader(exam.get('title', 'Exam'))
 
@@ -121,27 +140,35 @@ with col2:
 
             st.write(q.get('text', ''))
 
-            # Simple interactive radio buttons for mock
             options = q.get('options', ['A', 'B', 'C', 'D'])
             choice = st.radio(f"請選擇答案 (Q{idx+1}):", options, key=f"q_{idx}")
 
-            # Button to submit answer
             if st.button(f"提交答案 (Q{idx+1})", key=f"submit_{idx}"):
-                # Simulate grading (in a real app, check against correct answer)
-                # For this demo, let's assume 'A' is correct, anything else triggers the write-back
                 if choice == 'A':
                     st.success("✅ 答對了！")
+                    st.session_state['pme_streak'] = st.session_state.get('pme_streak', 0) + 1
+                    if st.session_state['pme_streak'] >= 3:
+                        st.balloons()
+                        st.warning("🔥 連續答對 3 題！已達 70% 學習甜頭區上限。下一題將升階為「應用題/解釋題」。")
                 else:
-                    st.error("❌ 答錯了！已記錄至錯題本。")
-                    # Here we extract the eds_x_code.
-                    # Assuming we map q_id back to code, or it's embedded in the question.
-                    # Since our mock question generator didn't embed the code directly in the question obj,
-                    # we'll simulate it for the demo.
+                    st.session_state['pme_streak'] = 0
+                    st.error("❌ 答錯了！已記錄至高壓錯題本。")
                     code_to_log = "Bc-Ⅳ-3" if "光合作用" in q.get('text', '') or "葉綠體" in q.get('text', '') else "Eb-Ⅳ-2"
 
-                    success = record_wrong_answer(code_to_log, loss_reason="概念錯誤")
+                    success = record_wrong_answer(code_to_log, loss_reason="推理不足")
                     if success:
-                        st.info(f"系統已將弱點代碼 `{code_to_log}` 寫入 RDQ Shared DB。請重新產生圖譜查看優先級變化！")
+                        st.info(f"系統已將弱點代碼 `{code_to_log}` 寫入。若需要解答，請先嘗試自己推導 3 分鐘！")
+
+        st.markdown("---")
+        st.markdown("### ⚖️ 實戰覆盤 (Phase 3: EVALUATE & Loss Aversion Stakes)")
+        with st.expander("結束測驗，進行對賭承諾 (必須填寫)"):
+            st.write("哪裡被澄清了？哪裡還模糊？")
+            st.text_area("反思內容：")
+            st.markdown("#### 💥 5x 損失趨避公開承諾")
+            stake = st.text_input("若下週模擬考這個目標又錯，我將：", placeholder="例如: 暫停週末電動時間 / 執行 50 個俯臥撐")
+            if st.button("鎖定承諾並結束特訓"):
+                st.success(f"已記錄您的承諾：「{stake}」。我們考場見！")
+                st.balloons()
 
 st.markdown("---")
 st.caption("Ecosystem Integration: T2N Preprocessor -> RDQ Shared Schema -> EDS Decision Engine")
