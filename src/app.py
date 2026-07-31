@@ -93,18 +93,22 @@ with tab2:
                 st.success("解析完成！")
 
                 # Tabs for different outputs
-                tab1, tab2, tab3 = st.tabs(["Markdown 筆記", "心智圖 (Mermaid)", "隨堂考卷 (API串接)"])
+                tab_html, tab_md, tab_mm, tab_quiz = st.tabs(["精美筆記 (HTML)", "Markdown", "心智圖", "隨堂測驗"])
 
-                with tab1:
+                with tab_html:
+                    html_content = processor.render_html(json_result)
+                    st.markdown(html_content, unsafe_allow_html=True)
+
+                with tab_md:
                     md_text = processor.render_markdown(json_result)
                     st.markdown(md_text)
 
-                with tab2:
+                with tab_mm:
                     mermaid_code = processor.generate_mindmap(json_result)
                     st.code(mermaid_code, language="mermaid")
                     st.markdown("*(可複製至 [Mermaid Live Editor](https://mermaid.live/) 查看)*")
 
-                with tab3:
+                with tab_quiz:
                     from src.generate_eds_exam import get_pop_quiz
                     import json
 

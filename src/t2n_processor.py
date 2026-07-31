@@ -167,6 +167,39 @@ class T2NProcessor:
 
         return "\n".join(md_lines)
 
+    def render_html(self, json_data: dict) -> str:
+        """
+        Converts the T2N JSON output into a styled HTML string.
+        """
+        title = json_data.get('title', 'T2N 學習筆記')
+        html_lines = [
+            f"<div style='font-family: sans-serif; padding: 20px; border-radius: 8px; background-color: #f9f9f9; color: #333;'>",
+            f"  <h1 style='color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;'>{title}</h1>"
+        ]
+
+        if json_data.get('is_out_of_matrix'):
+            html_lines.append("  <div style='background-color: #fff3cd; color: #856404; padding: 10px; border-left: 5px solid #ffeeba; margin-bottom: 15px;'>⚠️ <b>注意</b>：部分內容已超出 108 課綱範圍。</div>")
+
+        html_lines.append("  <h2 style='color: #2980b9; margin-top: 20px;'>核心概念拆解</h2>")
+        html_lines.append("  <ul style='list-style-type: none; padding-left: 0;'>")
+
+        for node in json_data.get('nodes', []):
+            concept = node.get('concept', '未命名概念')
+            code = node.get('eds_x_code', '')
+            details = node.get('details', '')
+
+            code_badge = f"<span style='background-color: #e8f4f8; color: #117a8b; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-left: 10px;'>{code}</span>" if code else ""
+
+            html_lines.append(f"    <li style='background: white; margin-bottom: 15px; padding: 15px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>")
+            html_lines.append(f"      <h3 style='margin-top: 0; color: #34495e;'>{concept} {code_badge}</h3>")
+            html_lines.append(f"      <p style='margin-bottom: 0; line-height: 1.6;'>{details}</p>")
+            html_lines.append(f"    </li>")
+
+        html_lines.append("  </ul>")
+        html_lines.append("</div>")
+
+        return "\n".join(html_lines)
+
     def generate_quiz(self, json_data: dict) -> str:
         """
         Generates a post-study quiz based on the extracted JSON nodes.
