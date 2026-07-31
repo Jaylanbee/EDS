@@ -3,12 +3,9 @@ import pandas as pd
 from src.analyzer import EDSAnalyzer
 from src.adaptive_engine import AdaptiveEngine
 
-def generate_decision_graph_text(data_path: str, available_hours: float = 2.0, target_mode: str = 'A++') -> str:
+def generate_decision_graph_text(data_path: str = None, available_hours: float = 2.0, target_mode: str = 'A++') -> str:
     """Generates the text-based Application Layer Output (決勝圖譜) and returns it as a string."""
-    analyzer = EDSAnalyzer(data_path)
-
-    if analyzer.df.empty:
-        return "Data is empty. Cannot generate graph."
+    analyzer = EDSAnalyzer()
 
     adaptive_engine = AdaptiveEngine()
     modifiers = adaptive_engine.get_priority_modifiers()
@@ -70,10 +67,10 @@ def generate_decision_graph_text(data_path: str, available_hours: float = 2.0, t
 
     return "\n".join(output_lines)
 
-def generate_decision_graph(data_path: str, output_path: str, available_hours: float = 2.0, target_mode: str = 'A++'):
+def generate_decision_graph(data_path: str = None, output_path: str = "outputs/daily_suggestion.txt", available_hours: float = 2.0, target_mode: str = 'A++'):
     """Legacy wrapper for terminal execution."""
-    print(f"Initializing EDS Analyzer for data: {data_path}")
-    output_text = generate_decision_graph_text(data_path, available_hours, target_mode)
+    print(f"Initializing Phase 2 dynamic EDS Analyzer")
+    output_text = generate_decision_graph_text(None, available_hours, target_mode)
 
     # Write to file
     with open(output_path, 'w', encoding='utf-8') as f:
@@ -87,4 +84,4 @@ def generate_decision_graph(data_path: str, output_path: str, available_hours: f
 if __name__ == "__main__":
     # Ensure outputs directory exists
     os.makedirs('outputs', exist_ok=True)
-    generate_decision_graph('exam-data/eds_roi_weights.csv', 'outputs/daily_suggestion.txt')
+    generate_decision_graph(None, 'outputs/daily_suggestion.txt')
