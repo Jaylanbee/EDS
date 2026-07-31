@@ -51,9 +51,9 @@ with tab1:
 
                 # Assign traffic lights based on mock thresholds
                 def get_light(score):
-                    if score >= 0.8: return "🔴 慘不忍睹"
-                    elif score >= 0.4: return "🟡 似懂非懂"
-                    else: return "🟢 粗心大意"
+                    if score >= 0.8: return "🔴 優先攻堅"
+                    elif score >= 0.4: return "🟡 觀念微調"
+                    else: return "🟢 掌握良好"
 
                 weakness_df['狀態燈號'] = weakness_df['weakness_score'].apply(get_light)
                 weakness_df = weakness_df.rename(columns={'item_id': '弱點代碼 (eds_x_code)', 'weakness_score': '弱點分數'})
@@ -71,7 +71,9 @@ with tab2:
 
     with col1:
         st.header("1. 知識建構 (Textbook2Notes)")
-    engine_choice = st.radio("選擇 AI 引擎：", ["Auto (Gemini優先/Ollama備援)", "Gemini API", "Ollama 本地", "模擬模式"], horizontal=True)
+        st.caption("已與上游 T2N (Textbook2Notes) 筆記動態對接，已為您自動載入該單元之知識結構。")
+
+        engine_choice = st.radio("選擇 AI 引擎：", ["Auto (Gemini優先/Ollama備援)", "Gemini API", "Ollama 本地", "模擬模式"], horizontal=True)
 
     engine_map = {
         "Auto (Gemini優先/Ollama備援)": "auto",
@@ -146,7 +148,7 @@ with tab2:
 
             with st.expander("📝 點此設定今日作戰計畫 (未設定不准派題)", expanded=True):
                 pme_goal = st.text_input("1. 今天打擊哪個目標代碼？", placeholder="例如: Bc-Ⅳ-3")
-                pme_status = st.selectbox("2. 該目標目前燈號狀態？", ["🔴 慘不忍睹 (概念錯誤)", "🟡 似懂非懂 (推理不足)", "🟢 粗心大意 (看錯題)"])
+                pme_status = st.selectbox("2. 該目標目前燈號狀態？", ["🔴 優先攻堅 (概念錯誤)", "🟡 觀念微調 (推理不足)", "🟢 掌握良好 (看錯題)"])
                 pme_strategy = st.text_area("3. 預計做幾題及求救策略？", placeholder="預計做5題，卡住時會先掙扎3分鐘再看解答。")
 
                 pme_ready = st.button("我已完成承諾，開始特訓！")
@@ -238,7 +240,7 @@ with tab3:
         st.subheader("🎯 EPOCH 靈魂五力雷達圖")
         st.write("讀取中...")
         # Mocking a simple radar chart or text representation
-        st.text("E (Engagement): ★★★★★\nP (Perseverance): ★★★★☆\nO (Optimism): ★★★☆☆\nC (Connectedness): ★★★★☆\nH (Happiness): ★★★★★")
+        st.text("E (Empathy 同理心): ★★★★★\nP (Presence 存在感): ★★★★☆\nO (Outcome-ethics 倫理判斷): ★★★☆☆\nC (Creation 創造力): ★★★★☆\nH (Hope 希望力): ★★★★★")
 
 st.markdown("---")
 st.caption("Ecosystem Integration: T2N Preprocessor -> RDQ Shared Schema -> EDS Decision Engine")

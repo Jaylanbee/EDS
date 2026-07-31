@@ -34,9 +34,8 @@ def generate_decision_graph_text(data_path: str = None, available_hours: float =
 
     if latest_weakness:
         rdq_topic = latest_weakness.get('topic')
-        rdq_reason = latest_weakness.get('reason', '觀念不夠熟練')
-        output_lines.append(f"收到 RDQ 傳來的資料！我看到你在『{rdq_topic}』的「{rdq_reason}」上還有點卡關。")
-        output_lines.append(f"距離實戰越來越近，我們今天先不念課本，直接來看歷屆會考最常考的題型，準備好了嗎？\n")
+        output_lines.append(f"已為你對接 RDQ 的檢傷紀錄！發現你在『{rdq_topic}』的『概念理解』上有發揮空間。")
+        output_lines.append(f"考前黃金時間，我們直接進入 **50%~70% 難度甜頭區** 的會考真題特訓，用出題來鍛造你的記憶。準備好開始挑戰了嗎？\n")
 
     output_lines.append(f"📅 今天（{available_hours} 小時）該讀：\n")
 
