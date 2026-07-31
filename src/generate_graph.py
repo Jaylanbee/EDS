@@ -3,7 +3,7 @@ import pandas as pd
 from src.analyzer import EDSAnalyzer
 from src.adaptive_engine import AdaptiveEngine
 
-def generate_decision_graph_text(data_path: str = None, available_hours: float = 2.0, target_mode: str = 'A++') -> str:
+def generate_decision_graph_text(data_path: str = None, available_hours: float = 2.0, target_mode: str = 'A++', target_subject: str = None) -> str:
     """Generates the text-based Application Layer Output (決勝圖譜) and returns it as a string."""
     analyzer = EDSAnalyzer()
 
@@ -11,8 +11,8 @@ def generate_decision_graph_text(data_path: str = None, available_hours: float =
     modifiers = adaptive_engine.get_priority_modifiers()
     latest_weakness = adaptive_engine.get_latest_weakness_summary()
 
-    roi_df = analyzer.module_d_priority_score(mode=target_mode, personal_modifiers=modifiers)
-    trap_df = analyzer.module_b_trap_analysis()
+    roi_df = analyzer.module_d_priority_score(mode=target_mode, personal_modifiers=modifiers, target_subject=target_subject)
+    trap_df = analyzer.module_b_trap_analysis(target_subject=target_subject)
 
     if roi_df.empty:
         return "Failed to calculate ROI."
@@ -67,10 +67,10 @@ def generate_decision_graph_text(data_path: str = None, available_hours: float =
 
     return "\n".join(output_lines)
 
-def generate_decision_graph(data_path: str = None, output_path: str = "outputs/daily_suggestion.txt", available_hours: float = 2.0, target_mode: str = 'A++'):
+def generate_decision_graph(data_path: str = None, output_path: str = "outputs/daily_suggestion.txt", available_hours: float = 2.0, target_mode: str = 'A++', target_subject: str = None):
     """Legacy wrapper for terminal execution."""
     print(f"Initializing Phase 2 dynamic EDS Analyzer")
-    output_text = generate_decision_graph_text(None, available_hours, target_mode)
+    output_text = generate_decision_graph_text(None, available_hours, target_mode, target_subject)
 
     # Write to file
     with open(output_path, 'w', encoding='utf-8') as f:
