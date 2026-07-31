@@ -1,8 +1,58 @@
 import json
+import os
+import requests
 
 class T2NProcessor:
     def __init__(self):
-        pass
+        # Allow connecting to local Ollama instance (default to the Shared-Schema env variable)
+        env_url = os.environ.get("LOCAL_LLM_API_URL")
+        self.api_url = env_url if env_url else "http://localhost:11434/api/generate"
+
+    def invoke_ollama_llm(self, text_input: str, model_name: str = "llama3") -> dict:
+        """
+        Real integration with local Ollama LLM API (Phase 4).
+        It forces the model to output the JSON schema.
+        """
+        prompt = f"""
+        You are the Textbook2Notes (T2N) preprocessor.
+        Analyze the following educational text. Extract key concepts and assign the correct 108 Curriculum 'eds_x_code'.
+        You MUST output ONLY a valid JSON object with the following schema:
+        {{
+            "title": "String",
+            "is_out_of_matrix": Boolean,
+            "nodes": [
+                {{
+                    "concept": "String",
+                    "details": "String",
+                    "eds_x_code": "String (e.g. Bc-Ⅳ-3)"
+                }}
+            ]
+        }}
+
+        Text to analyze:
+        {text_input}
+        """
+
+        try:
+            response = requests.post(
+                self.api_url,
+                json={
+                    "model": model_name,
+                    "prompt": prompt,
+                    "format": "json",
+                    "stream": False
+                },
+                timeout=10
+            )
+            if response.status_code == 200:
+                result_text = response.json().get('response', '{}')
+                return json.loads(result_text)
+            else:
+                print(f"LLM API Error: {response.status_code}")
+                return self.simulate_llm_parsing(text_input)
+        except Exception as e:
+            print(f"Failed to connect to Local LLM at {self.api_url}: {e}. Falling back to simulation.")
+            return self.simulate_llm_parsing(text_input)
 
     def simulate_llm_parsing(self, text_input: str) -> dict:
         """

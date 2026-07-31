@@ -18,9 +18,10 @@ with col1:
 
     if st.button("🚀 執行 T2N 解析"):
         if text_input.strip():
-            with st.spinner("AI 處理中 (模擬)..."):
+            with st.spinner("AI 處理中..."):
                 processor = T2NProcessor()
-                json_result = processor.simulate_llm_parsing(text_input)
+                # Try real LLM, falls back to simulation if Ollama isn't running
+                json_result = processor.invoke_ollama_llm(text_input)
 
                 st.success("解析完成！")
 
@@ -97,11 +98,50 @@ with col2:
                 if not roi_df.empty:
                     # Take top 3 topics
                     top_topics_dicts = roi_df.head(3).to_dict('records')
-                    exam_json = get_exam_for_topics(top_topics_dicts, num_questions=5)
+                    exam_json = json.loads(get_exam_for_topics(top_topics_dicts, num_questions=5))
+                    st.session_state['current_exam'] = exam_json
                     st.success("考卷組裝完成！")
-                    st.json(json.loads(exam_json))
                 else:
                     st.error("無法取得優先主題以進行組卷。")
+
+    # Render interactive Exam Mock if exists
+    if 'current_exam' in st.session_state:
+        from src.db_writer import record_wrong_answer
+        st.markdown("### 📝 實戰演練 (Exam Mock)")
+        exam = st.session_state['current_exam']
+        st.subheader(exam.get('title', 'Exam'))
+
+        for idx, q_data in enumerate(exam.get('questions', [])):
+            q_type = q_data.get('type')
+            q = q_data.get('question', {})
+
+            st.markdown(f"**Q{idx+1}.**")
+            if q_type == 'group':
+                st.info(q_data.get('group_text'))
+
+            st.write(q.get('text', ''))
+
+            # Simple interactive radio buttons for mock
+            options = q.get('options', ['A', 'B', 'C', 'D'])
+            choice = st.radio(f"請選擇答案 (Q{idx+1}):", options, key=f"q_{idx}")
+
+            # Button to submit answer
+            if st.button(f"提交答案 (Q{idx+1})", key=f"submit_{idx}"):
+                # Simulate grading (in a real app, check against correct answer)
+                # For this demo, let's assume 'A' is correct, anything else triggers the write-back
+                if choice == 'A':
+                    st.success("✅ 答對了！")
+                else:
+                    st.error("❌ 答錯了！已記錄至錯題本。")
+                    # Here we extract the eds_x_code.
+                    # Assuming we map q_id back to code, or it's embedded in the question.
+                    # Since our mock question generator didn't embed the code directly in the question obj,
+                    # we'll simulate it for the demo.
+                    code_to_log = "Bc-Ⅳ-3" if "光合作用" in q.get('text', '') or "葉綠體" in q.get('text', '') else "Eb-Ⅳ-2"
+
+                    success = record_wrong_answer(code_to_log, loss_reason="概念錯誤")
+                    if success:
+                        st.info(f"系統已將弱點代碼 `{code_to_log}` 寫入 RDQ Shared DB。請重新產生圖譜查看優先級變化！")
 
 st.markdown("---")
 st.caption("Ecosystem Integration: T2N Preprocessor -> RDQ Shared Schema -> EDS Decision Engine")
