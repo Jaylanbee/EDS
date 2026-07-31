@@ -87,4 +87,4 @@ def generate_decision_graph(data_path: str, output_path: str, available_hours: f
 if __name__ == "__main__":
     # Ensure outputs directory exists
     os.makedirs('outputs', exist_ok=True)
-    generate_decision_graph('exam-data/tagging_template.csv', 'outputs/daily_suggestion.txt')
+    generate_decision_graph('exam-data/eds_roi_weights.csv', 'outputs/daily_suggestion.txt')

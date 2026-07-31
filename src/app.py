@@ -66,7 +66,7 @@ with col2:
     st.header("2. 實戰決策 (EDS 決勝圖譜)")
 
     # 檢查是否有預設的 Dataset
-    default_csv = "exam-data/test_integration_data.csv"
+    default_csv = "exam-data/eds_roi_weights.csv"
 
     # 小控制面板
     hours = st.slider("今天剩餘讀書時間 (小時)：", min_value=0.5, max_value=5.0, value=2.0, step=0.5)
