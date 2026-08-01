@@ -1,260 +1,319 @@
 import json
 import os
-import requests
-from google import genai
-from google.genai import types
+import re
+import sys
+from pathlib import Path
+
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 class T2NProcessor:
-    def __init__(self):
-        # Allow connecting to local Ollama instance (default to the Shared-Schema env variable)
-        env_url = os.environ.get("LOCAL_LLM_API_URL")
-        self.ollama_api_url = env_url if env_url else "http://localhost:11434/api/generate"
+    """
+    Dynamic T2N Vault Reader & Adapter for EDS Cockpit.
+    Dynamically binds selected Markdown notes from D:/Kid's Vault/ to their actual
+    content, HTML exports, visual Mermaid mindmaps, and 108 CAP exam quizzes.
+    """
 
-        # Setup Gemini Client
-        self.gemini_keys = os.environ.get("GEMINI_API_KEYS", "").split(",")
-        self.current_key_idx = 0
-        if self.gemini_keys and self.gemini_keys[0]:
-            self.gemini_client = genai.Client(api_key=self.gemini_keys[self.current_key_idx].strip())
-        else:
-            self.gemini_client = None
+    def __init__(self, vault_root: str = "D:/Kid's Vault"):
+        self.vault_root = Path(vault_root)
+        self.notes_dir = self.vault_root / "20_讀書筆記"
+        self.html_dir = self.vault_root / "80_HTML網頁匯出"
 
-        self.system_prompt = """
-        You are the Textbook2Notes (T2N) preprocessor.
-        Analyze the following educational text. Extract key concepts and assign the correct 108 Curriculum 'eds_x_code'.
-        You MUST output ONLY a valid JSON object with the following schema:
-        {
-            "title": "String",
-            "is_out_of_matrix": Boolean,
-            "nodes": [
-                {
-                    "concept": "String",
-                    "details": "String",
-                    "eds_x_code": "String (e.g. Bc-Ⅳ-3)"
+    def get_available_notes(self, semester_filter: str = "全部範圍") -> list:
+        """Lists available converted Markdown notes in the Vault, optionally filtered by semester."""
+        if self.notes_dir.exists():
+            notes = [str(f.relative_to(self.notes_dir)) for f in self.notes_dir.rglob("*.md")]
+            if notes:
+                sorted_notes = sorted(notes)
+                if semester_filter == "全部範圍":
+                    return sorted_notes
+
+                tag_map = {
+                    "七年級上學期 (1上)": ["1上", "七上", "7上"],
+                    "七年級下學期 (1下)": ["1下", "七下", "7下"],
+                    "八年級上學期 (2上)": ["2上", "八上", "8上"],
+                    "八年級下學期 (2下)": ["2下", "八下", "8下"],
+                    "九年級上學期 (3上)": ["3上", "九上", "9上"],
+                    "九年級下學期 (3下)": ["3下", "九下", "9下"],
                 }
-            ]
+                valid_tags = tag_map.get(semester_filter, [])
+                filtered = [n for n in sorted_notes if any(tag in n for tag in valid_tags)]
+                return filtered if filtered else sorted_notes
+        return ["自然1上_L01_光合作用與能量轉換_筆記.md"]
+
+    def clean_markdown_for_display(self, md_text: str) -> str:
+        """Sanitizes Markdown text for clean display: strips all YAML frontmatter & metadata keys."""
+        if not md_text:
+            return ""
+
+        # 1. Strip YAML frontmatter between --- and ---
+        if md_text.startswith("---"):
+            end_idx = md_text.find("---", 3)
+            if end_idx != -1:
+                md_text = md_text[end_idx + 3:].strip()
+
+        # 2. Strip any residual frontmatter key-value pairs or list bullets under metadata
+        lines = md_text.splitlines()
+        clean_lines = []
+
+        for line in lines:
+            trimmed = line.strip()
+            if any(trimmed.startswith(k) for k in [
+                "created:", "tags:", "aliases:", "progress:", "spaced_repetition:",
+                "r1_1day:", "r2_3days:", "r3_7days:", "r4_14days:", "r5_30days:", "review_status:"
+            ]):
+                continue
+            if (trimmed.startswith("- 國中/") or trimmed.startswith("- 讀書筆記") or "progress: complete" in trimmed) and len(clean_lines) < 10:
+                continue
+
+            # Clean raw Obsidian callouts [!summary] -> bold title
+            m_callout = re.match(r'^>\s*\[\!(summary|danger|warning|note|info|tip|abstract)\]\s*(.*)', line, re.IGNORECASE)
+            if m_callout:
+                ctype = m_callout.group(1).upper()
+                ctitle = m_callout.group(2).strip() or ctype
+                clean_title = re.sub(r'^[🎯⚠️📌📝\s]+', '', ctitle) or ctype
+                icon = "🎯" if ctype == "DANGER" else ("⚠️" if ctype in ["WARNING", "SUMMARY"] else "📌")
+                clean_lines.append(f"> **{icon} {clean_title}**")
+                continue
+
+            clean_lines.append(line)
+
+        return "\n".join(clean_lines).strip()
+
+    def load_note_markdown(self, note_identifier: str = None) -> str:
+        """Reads a converted Markdown note from the Vault and sanitizes it."""
+        raw_md = ""
+        if note_identifier:
+            target_path = self.notes_dir / note_identifier
+            if target_path.exists():
+                raw_md = target_path.read_text(encoding="utf-8")
+
+        if not raw_md:
+            raw_md = """# 國中自然1上_L01_光合作用與能量轉換_筆記.md
+<教材出處：國中自然1上 p.35-42>
+
+## 核心概念結構化拆解
+
+### 光反應 (Light-Dependent Reaction) `108課綱: Bc-IV-3`
+發生於葉綠體的葉綠餅 (類囊體膜)，吸收光能將水分子分割釋放氧氣，同時產生高能量分子 ATP 與 NADPH。
+
+> [!danger] 🎯 迷思陷阱警示
+> 常錯點：水分子分割發生在光反應而非暗反應！
+
+### 碳反應/暗反應 (Carbon Fixation) `108課綱: Bc-IV-3`
+發生於葉綠體基質，不直接需要光照，利用光反應提供的 ATP 與 NADPH 將二氧化碳 (CO2) 同化固定為葡萄糖與水。
+
+> [!danger] 🎯 迷思陷阱警示
+> 常錯點：暗反應在白天同樣進行，並非只在晚上運作！
+"""
+        return self.clean_markdown_for_display(raw_md)
+
+    def extract_note_metadata(self, note_identifier: str = None, md_text: str = "") -> dict:
+        """Extracts clean title, 108 curriculum codes, and section headers from the selected note."""
+        if not md_text and note_identifier:
+            md_text = self.load_note_markdown(note_identifier)
+
+        title = "單元筆記"
+        if note_identifier:
+            base_name = Path(note_identifier).stem
+            title = base_name.replace("_筆記", "").split("_")[-1]
+
+        headers = []
+        codes = []
+
+        # Strictly find standard 108 curriculum codes (e.g. Bc-Ⅳ-3, Ba-Ⅳ-1, Ab-Ⅰ-1)
+        found_codes = re.findall(r'`([A-Za-z]{1,2}-[I|V|X|Ⅳ|Ⅴ|Ⅵ]+-\d+)`|`108課綱:\s*([^`]+)`', md_text)
+        for c1, c2 in found_codes:
+            code_str = (c1 or c2).strip()
+            if code_str and not code_str.startswith(">") and "命題熱力" not in code_str:
+                codes.append(code_str)
+
+        # Extract markdown headers ## H2 and ### H3
+        for line in md_text.splitlines():
+            line_str = line.strip()
+            if line_str.startswith("# ") and title == "單元筆記":
+                clean_t = line_str.replace("# ", "").strip()
+                clean_t = re.sub(r'^[🔴🟡🟢🎯\s]+', '', clean_t)
+                title = clean_t
+            elif line_str.startswith("## "):
+                h_text = line_str.replace("## ", "").strip()
+                h_text = re.sub(r'`[^`]+`', '', h_text).strip()
+                if h_text and not h_text.startswith("!"):
+                    headers.append({"level": 2, "text": h_text})
+            elif line_str.startswith("### "):
+                h_text = line_str.replace("### ", "").strip()
+                h_text = re.sub(r'`[^`]+`', '', h_text).strip()
+                if h_text and not h_text.startswith("!"):
+                    headers.append({"level": 3, "text": h_text})
+
+        primary_code = codes[0] if codes else title
+
+        return {
+            "title": title,
+            "primary_code": primary_code,
+            "all_codes": codes,
+            "headers": headers
         }
-        """
 
-    def process_text(self, text_input: str, engine: str = "auto") -> dict:
-        """
-        Main entry point for UI. Handles routing and fallbacks based on engine selection.
-        engine options: 'auto' (Gemini -> Ollama -> Sim), 'gemini', 'ollama', 'simulation'
-        """
-        if engine in ["auto", "gemini"]:
-            if self.gemini_keys and self.gemini_keys[0]:
-                print("[T2N] Attempting Gemini API...")
-                result = self.invoke_gemini_llm(text_input)
-                if result:
-                    return result
-                if engine == "gemini":
-                    return self.simulate_llm_parsing(text_input) # Fallback to sim if strictly gemini requested but failed
-            elif engine == "gemini":
-                print("[T2N] Gemini API Key not configured. Falling back to simulation.")
-                return self.simulate_llm_parsing(text_input)
+    def load_note_html(self, note_identifier: str = None) -> str:
+        """Reads matching HTML note if exported; returns None if not yet generated for this note."""
+        if note_identifier:
+            # Try exact HTML name matching
+            html_name = Path(note_identifier).stem + ".html"
+            target_path = self.html_dir / html_name
+            if target_path.exists():
+                return target_path.read_text(encoding="utf-8")
 
-        if engine in ["auto", "ollama"]:
-            print("[T2N] Attempting Ollama Local API...")
-            result = self.invoke_ollama_llm(text_input)
-            if result:
-                return result
+            # Try matching HTML by note stem
+            stem = Path(note_identifier).stem
+            matched_files = list(self.html_dir.rglob(f"*{stem}*.html")) if self.html_dir.exists() else []
+            if matched_files:
+                return matched_files[0].read_text(encoding="utf-8")
 
-        print("[T2N] Falling back to Simulation.")
-        return self.simulate_llm_parsing(text_input)
-
-    def invoke_gemini_llm(self, text_input: str) -> dict:
-        """Integration with Google Gemini API, including key rotation retry."""
-        if not self.gemini_client:
-            return None
-
-        max_retries = len(self.gemini_keys) if self.gemini_keys else 1
-
-        for attempt in range(max_retries):
-            try:
-                response = self.gemini_client.models.generate_content(
-                    model='gemini-1.5-flash',
-                    contents=text_input,
-                    config=types.GenerateContentConfig(
-                        system_instruction=self.system_prompt,
-                        response_mime_type="application/json",
-                    ),
-                )
-                return json.loads(response.text)
-
-            except Exception as e:
-                print(f"[Gemini API Error - Attempt {attempt+1}/{max_retries}] {e}")
-                # Rotate key on ResourceExhausted (429)
-                if "429" in str(e) and len(self.gemini_keys) > 1:
-                    print("Rate limit hit. Rotating to next key and retrying...")
-                    self.current_key_idx = (self.current_key_idx + 1) % len(self.gemini_keys)
-                    self.gemini_client = genai.Client(api_key=self.gemini_keys[self.current_key_idx].strip())
-                else:
-                    # Break on other errors (e.g., auth failure, bad request)
-                    break
-
+        # Return None if no matching HTML file exists
         return None
 
-    def invoke_ollama_llm(self, text_input: str, model_name: str = "llama3") -> dict:
-        """
-        Real integration with local Ollama LLM API (Phase 4).
-        It forces the model to output the JSON schema.
-        """
-        prompt = self.system_prompt + f"\n\nText to analyze:\n{text_input}"
+    def generate_mindmap(self, note_identifier: str = None, md_text: str = None) -> str:
+        """Dynamically builds a Mermaid mindmap matching the SELECTED note's actual section headers."""
+        if not md_text and note_identifier:
+            md_text = self.load_note_markdown(note_identifier)
 
-        try:
-            response = requests.post(
-                self.ollama_api_url,
-                json={
-                    "model": model_name,
-                    "prompt": prompt,
-                    "format": "json",
-                    "stream": False
-                },
-                timeout=10
-            )
-            if response.status_code == 200:
-                result_text = response.json().get('response', '{}')
-                return json.loads(result_text)
-            else:
-                print(f"LLM API Error: {response.status_code}")
-                return self.simulate_llm_parsing(text_input)
-        except Exception as e:
-            print(f"Failed to connect to Local LLM at {self.ollama_api_url}: {e}. Falling back to simulation.")
+        meta = self.extract_note_metadata(note_identifier, md_text)
+        title = meta["title"]
+        headers = meta["headers"]
+
+        if not headers:
             return None
 
-    def simulate_llm_parsing(self, text_input: str) -> dict:
-        """
-        Simulates the T2N LLM process. It assumes the LLM has used `matrix_parser`
-        to attach the correct `eds_x_code` and output JSON.
-        """
-        # In reality, this would be an API call to an LLM enforcing a JSON schema.
-        # For now, we simulate the structured output based on the new spec.
-        is_out_of_matrix = "大學" in text_input or "微積分" in text_input
+        # Build dynamic Mermaid mindmap string
+        lines = ["mindmap", f"  root(({title}))"]
 
-        simulated_output = {
-            "title": "光合作用筆記",
-            "is_out_of_matrix": is_out_of_matrix,
-            "nodes": [
-                {
-                    "concept": "光反應",
-                    "details": "在葉綠餅發生，需要光，產生ATP與NADPH。",
-                    "eds_x_code": "Bc-IV-3"
-                },
-                {
-                    "concept": "碳反應(暗反應)",
-                    "details": "在葉綠體基質發生，不需要光，利用ATP與NADPH將CO2轉為葡萄糖。",
-                    "eds_x_code": "Bc-IV-3"
-                }
-            ]
+        current_h2 = None
+        for h in headers:
+            text = h["text"].replace("(", "（").replace(")", "）")
+            if h["level"] == 2:
+                lines.append(f"    {text}")
+                current_h2 = text
+            elif h["level"] == 3:
+                indent = "      " if current_h2 else "    "
+                lines.append(f"{indent}{text}")
+
+        return "\n".join(lines)
+
+    def generate_quiz(self, eds_x_code: str = None, note_identifier: str = None, num_questions: int = 5, target_level: str = "A++") -> str:
+        """Generates pop quiz using EDSExamGenerator."""
+        from src.generate_eds_exam import get_pop_quiz
+
+        if not eds_x_code and note_identifier:
+            meta = self.extract_note_metadata(note_identifier)
+            eds_x_code = meta["primary_code"]
+
+        if not eds_x_code:
+            eds_x_code = "Bc-Ⅳ-3"
+
+        return get_pop_quiz(eds_x_code, note_identifier=note_identifier, num_questions=num_questions, target_level=target_level)
+
+    def process_text(self, text_input: str, engine: str = "auto") -> dict:
+        return self.simulate_llm_parsing(text_input)
+
+    def simulate_llm_parsing(self, text_input: str = "") -> dict:
+        return {
+            "title": "單元筆記 (108課綱)",
+            "is_out_of_matrix": False,
+            "nodes": []
         }
-        return simulated_output
 
-    def render_markdown(self, json_data: dict) -> str:
-        """
-        Converts the T2N JSON output into a beautifully rendered Markdown string.
-        """
-        md_lines = []
-        md_lines.append(f"# {json_data.get('title', 'T2N 學習筆記')}")
+    def render_markdown(self, json_data: dict = None) -> str:
+        return self.load_note_markdown()
 
-        if json_data.get('is_out_of_matrix'):
-            md_lines.append("> ⚠️ **注意**：部分內容已超出 108 課綱範圍。")
+    def render_html_pro(self, json_data: dict = None) -> str:
+        return self.load_note_html()
 
-        md_lines.append("\n## 核心概念拆解\n")
+    def convert_rdq_db_to_vault_notes(self) -> int:
+        """Reads wrong answer records from SQLite (review_index.db) and generates Obsidian wrong question notes into Vault."""
+        db_path = os.getenv('ECOSYSTEM_DB_PATH', os.path.expanduser('~/.education_ecosystem/review_index.db'))
+        if not os.path.exists(db_path):
+            return 0
 
-        for node in json_data.get('nodes', []):
-            code_badge = f"`{node['eds_x_code']}`" if node.get('eds_x_code') else "`無對應代碼`"
-            md_lines.append(f"### {node.get('concept', '未命名概念')} {code_badge}")
-            md_lines.append(f"{node.get('details', '')}\n")
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("SELECT item_id, loss_reason, priority, updated_at FROM review_index")
+        rows = c.fetchall()
+        conn.close()
 
-        return "\n".join(md_lines)
+        count = 0
+        for item_id, loss_reason, priority, updated_at in rows:
+            subj_dir = self.vault_root / "40_錯題筆記" / "04_自然"
+            if "math" in item_id:
+                subj_dir = self.vault_root / "40_錯題筆記" / "03_數學"
+            elif "chi" in item_id:
+                subj_dir = self.vault_root / "40_錯題筆記" / "01_國文"
+            elif "eng" in item_id:
+                subj_dir = self.vault_root / "40_錯題筆記" / "02_英文"
+            elif "soc" in item_id:
+                subj_dir = self.vault_root / "40_錯題筆記" / "05_社會"
 
-    def render_html(self, json_data: dict) -> str:
-        """
-        Converts the T2N JSON output into a styled HTML string.
-        """
-        title = json_data.get('title', 'T2N 學習筆記')
-        html_lines = [
-            f"<div style='font-family: sans-serif; padding: 20px; border-radius: 8px; background-color: #f9f9f9; color: #333;'>",
-            f"  <h1 style='color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;'>{title}</h1>"
-        ]
+            subj_dir.mkdir(parents=True, exist_ok=True)
+            note_filename = f"{item_id}_會考真題_{loss_reason or '觀念'}錯題.md"
+            file_path = subj_dir / note_filename
 
-        if json_data.get('is_out_of_matrix'):
-            html_lines.append("  <div style='background-color: #fff3cd; color: #856404; padding: 10px; border-left: 5px solid #ffeeba; margin-bottom: 15px;'>⚠️ <b>注意</b>：部分內容已超出 108 課綱範圍。</div>")
+            if not file_path.exists():
+                content = f"""---
+created: "{str(updated_at)[:10]}"
+tags:
+  - 錯題筆記
+  - {item_id}
+  - 108課綱
+progress: complete
+---
 
-        html_lines.append("  <h2 style='color: #2980b9; margin-top: 20px;'>核心概念拆解</h2>")
-        html_lines.append("  <ul style='list-style-type: none; padding-left: 0;'>")
+# 🔴 RDQ錯題連動卡 — {item_id}
 
-        for node in json_data.get('nodes', []):
-            concept = node.get('concept', '未命名概念')
-            code = node.get('eds_x_code', '')
-            details = node.get('details', '')
+> [!important] 🎯 錯題 2D 雙維度對位
+> - **弱點代碼**：`{item_id}`
+> - **失分原因**：`{loss_reason or '概念錯誤'}`
+> - **攻堅燈號**：🔴 {priority or 'red'} 優先攻堅
 
-            code_badge = f"<span style='background-color: #e8f4f8; color: #117a8b; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-left: 10px;'>{code}</span>" if code else ""
+---
 
-            html_lines.append(f"    <li style='background: white; margin-bottom: 15px; padding: 15px; border-radius: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);'>")
-            html_lines.append(f"      <h3 style='margin-top: 0; color: #34495e;'>{concept} {code_badge}</h3>")
-            html_lines.append(f"      <p style='margin-bottom: 0; line-height: 1.6;'>{details}</p>")
-            html_lines.append(f"    </li>")
+## 📝 一、錯題原文與迷思陷阱
 
-        html_lines.append("  </ul>")
-        html_lines.append("</div>")
+**題目**：來自 RDQ 對話練習或會考測驗之關鍵錯題。
 
-        return "\n".join(html_lines)
+> [!warning] ⚠️ 迷思陷阱分析
+> 本題常錯點在於對 `{item_id}` 之定義理解不夠嚴密，容易受干擾選項影響。
 
-    def generate_quiz(self, json_data: dict) -> str:
-        """
-        Generates a post-study quiz based on the extracted JSON nodes.
-        """
-        # In a real app, this would query an LLM to generate distractor options
-        # based on the concept and details.
-        quiz_lines = ["# 課後小測驗\n"]
-        for i, node in enumerate(json_data.get('nodes', [])):
-            concept = node.get('concept', '')
-            details = node.get('details', '')
-            code = node.get('eds_x_code', '')
+---
 
-            quiz_lines.append(f"**Q{i+1} [{code}] 關於「{concept}」，下列敘述何者錯誤？**")
-            quiz_lines.append(f"- (A) {details} (這是正確敘述，請AI生成錯誤選項做為B,C,D)")
-            quiz_lines.append("- (B) ...")
-            quiz_lines.append("- (C) ...")
-            quiz_lines.append("- (D) ...\n")
+## 🧠 二、觀念重導與解題步驟
 
-        return "\n".join(quiz_lines)
+1. **核對核心定義**：回到 108 課綱課本原文再次確認。
+2. **三步推理法**：
+   - Step 1: 圈出關鍵條件
+   - Step 2: 排除魔王選項
+   - Step 3: 推導正確解答
 
-    def generate_mindmap(self, json_data: dict) -> str:
-        """
-        Converts the T2N JSON nodes into Mermaid.js mindmap syntax (Phase 6-B).
-        """
-        title = json_data.get('title', 'Central Concept')
-        mermaid_lines = ["```mermaid", "mindmap", f"  root(({title}))"]
+---
 
-        for node in json_data.get('nodes', []):
-            concept = node.get('concept', '')
-            code = node.get('eds_x_code', '')
-            # Clean up concept for mermaid syntax
-            clean_concept = concept.replace("(", " ").replace(")", " ")
-            mermaid_lines.append(f"    {clean_concept}")
-            if code:
-                mermaid_lines.append(f"      ({code})")
+## 🔄 三、擬真二刷同型題
 
-        mermaid_lines.append("```")
-        return "\n".join(mermaid_lines)
+> [!tip] 💡 觀念鞏固二刷
+> 考前務必於 EDS 駕駛艙進行同型題二刷！
+"""
+                file_path.write_text(content, encoding="utf-8")
+                count += 1
+
+        return count
 
 if __name__ == "__main__":
-    processor = T2NProcessor()
-
-    # 1. Simulate Parsing
-    print("=== 1. T2N JSON Output ===")
-    json_result = processor.simulate_llm_parsing("光合作用分為光反應與暗反應...")
-    print(json.dumps(json_result, indent=2, ensure_ascii=False))
-
-    # 2. Render Markdown
-    print("\n=== 2. T2N Markdown Rendering ===")
-    print(processor.render_markdown(json_result))
-
-    # 3. Generate Quiz
-    print("\n=== 3. T2N Quiz Generation ===")
-    print(processor.generate_quiz(json_result))
-
-    # 4. Generate Mind Map
-    print("\n=== 4. T2N Mind Map (Mermaid) ===")
-    print(processor.generate_mindmap(json_result))
+    reader = T2NProcessor()
+    notes = reader.get_available_notes()
+    print("=== T2N Dynamic Note Binder Test ===")
+    print("Notes:", notes)
+    if notes:
+        n0 = notes[0]
+        print(f"\nMetadata for {n0}:", reader.extract_note_metadata(n0))
+        print(f"\nDynamic Mindmap for {n0}:\n", reader.generate_mindmap(n0))
