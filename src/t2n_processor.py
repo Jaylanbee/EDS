@@ -22,6 +22,68 @@ class T2NProcessor:
         self.notes_dir = self.vault_root / "20_讀書筆記"
         self.html_dir = self.vault_root / "80_HTML網頁匯出"
 
+    def get_all_vault_tags(self) -> list:
+        """Task 2 API: Scans all Vault notes to extract a unique list of YAML tags."""
+        tags_set = set()
+        if self.notes_dir.exists():
+            for md_file in self.notes_dir.rglob("*.md"):
+                content = md_file.read_text(encoding="utf-8")
+                # Very basic YAML frontmatter tag extraction
+                frontmatter_match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
+                if frontmatter_match:
+                    fm = frontmatter_match.group(1)
+                    # Look for tags: \n  - tag1 \n  - tag2
+                    if "tags:" in fm:
+                        for line in fm.splitlines():
+                            if line.strip().startswith("- ") and not line.strip().startswith("- 國中/"):
+                                clean_tag = line.strip().replace("- ", "").replace("#", "").strip()
+                                if clean_tag:
+                                    tags_set.add(clean_tag)
+        return sorted(list(tags_set))
+
+    def search_vault_notes(self, keywords: str = None, tags: list = None, semester_filter: str = "全部範圍") -> list:
+        """Task 2 API: Searches notes by keyword, multiple YAML tags, and semester."""
+        base_notes = self.get_available_notes(semester_filter)
+        if not (keywords or tags):
+            return base_notes
+
+        results = []
+        kw_list = [k.strip().lower() for k in keywords.split()] if keywords else []
+
+        for note_rel_path in base_notes:
+            full_path = self.notes_dir / note_rel_path
+            if not full_path.exists():
+                continue
+
+            content = full_path.read_text(encoding="utf-8")
+            content_lower = content.lower()
+
+            # Check tags if specified
+            tag_match = True
+            if tags:
+                frontmatter_match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
+                fm = frontmatter_match.group(1) if frontmatter_match else ""
+                for t in tags:
+                    if f"- {t}" not in fm and f"#{t}" not in fm:
+                        tag_match = False
+                        break
+
+            if not tag_match:
+                continue
+
+            # Check keywords if specified
+            kw_match = True
+            if kw_list:
+                for kw in kw_list:
+                    if kw not in content_lower and kw not in note_rel_path.lower():
+                        kw_match = False
+                        break
+
+            if kw_match:
+                results.append(note_rel_path)
+
+        return results
+
     def get_available_notes(self, semester_filter: str = "全部範圍") -> list:
         """Lists available converted Markdown notes in the Vault, optionally filtered by semester."""
         if self.notes_dir.exists():

@@ -264,8 +264,37 @@ class EDSExamGenerator:
         }
         self.all_questions = [q for qs in self.real_question_bank.values() for q in qs]
 
-    def generate_balanced_exam(self, top_topics: list, num_questions: int = 5) -> dict:
-        """Task 1: Generate a balanced exam pulling real questions from top topics."""
+    def get_available_exam_scopes(self) -> dict:
+        """Task 3 API: Reads exam_scopes.json to return available semesters and exams."""
+        scopes_path = Path("src/exam_scopes.json")
+        if scopes_path.exists():
+            try:
+                data = json.loads(scopes_path.read_text(encoding="utf-8"))
+                return {k: list(v.keys()) for k, v in data.items()}
+            except Exception:
+                pass
+        return {
+            "03_國二上學期": ["第1次段考", "第2次段考", "第3次段考"],
+            "02_國一下學期": ["第1次段考", "第2次段考", "第3次段考"]
+        }
+
+    def get_scope_codes(self, semester: str, exam: str) -> list:
+        """Task 3 API: Returns the locked 108 curriculum codes for a specific exam scope."""
+        scopes_path = Path("src/exam_scopes.json")
+        if scopes_path.exists():
+            try:
+                data = json.loads(scopes_path.read_text(encoding="utf-8"))
+                if semester in data and exam in data[semester]:
+                    return data[semester][exam]
+            except Exception:
+                pass
+        # Fallback dummy data
+        if semester == "03_國二上學期":
+            return ["Ca-Ⅳ-1", "Ca-Ⅳ-2", "Cb-Ⅳ-1"]
+        return ["Bc-Ⅳ-3", "Eb-Ⅳ-2"]
+
+    def generate_balanced_exam(self, top_topics: list, num_questions: int = 5, exam_scope_codes: list = None) -> dict:
+        """Task 1 & 3: Generate a balanced exam pulling real questions, respecting scope lock."""
         exam = {"title": "🎯 EDS 會考全真特訓試卷", "questions": []}
         selected_q_ids = set()
 
@@ -282,9 +311,15 @@ class EDSExamGenerator:
                 code = topic.get('X軸主代碼', 'Bc-Ⅳ-3')
                 clean_code = code.replace("IV", "Ⅳ").replace("V", "Ⅴ").replace("VI", "Ⅵ")
 
+                # Task 3 Scope Lock Application
                 available_qs = [q for q in self.real_question_bank.get(clean_code, []) if q["q_id"] not in selected_q_ids]
+                if exam_scope_codes:
+                    available_qs = [q for q in available_qs if q.get("code") in exam_scope_codes]
+
                 if not available_qs:
                     available_qs = [q for q in self.all_questions if q["q_id"] not in selected_q_ids]
+                    if exam_scope_codes:
+                        available_qs = [q for q in available_qs if q.get("code") in exam_scope_codes]
 
                 if not available_qs:
                     topics_pool.remove(topic)
@@ -360,8 +395,8 @@ class EDSExamGenerator:
             med = [q for q in questions if 0.45 <= q.get("p_value", 0.65) <= 0.75]
             return med if len(med) >= 3 else questions
 
-    def generate_t2n_pop_quiz(self, eds_x_code: str, note_identifier: str = None, num_questions: int = 5, target_level: str = "A++") -> dict:
-        """Task 2: Generate a small pop quiz for a specific topic using real CAP exam questions."""
+    def generate_t2n_pop_quiz(self, eds_x_code: str, note_identifier: str = None, num_questions: int = 5, target_level: str = "A++", exam_scope_codes: list = None) -> dict:
+        """Task 2 & 3: Generate a small pop quiz for a specific topic using real CAP exam questions, respecting scope lock."""
         exam = {"title": f"📝 108會考全真隨堂測驗 ({eds_x_code}) [{target_level}]", "questions": []}
 
         ref_path = str(note_identifier or eds_x_code)
@@ -369,6 +404,10 @@ class EDSExamGenerator:
 
         # Strictly filter pool by 8 sub-disciplines
         subj_questions = [q for q in self.all_questions if self.get_question_subdiscipline(q) == sub_discipline or sub_discipline == "general"]
+
+        # Task 3 Scope Lock Application
+        if exam_scope_codes:
+            subj_questions = [q for q in subj_questions if q.get("code") in exam_scope_codes]
 
         # Apply P-value difficulty filtering according to target_level
         difficulty_filtered_qs = self.filter_questions_by_target(subj_questions, target_level)
@@ -415,14 +454,14 @@ class EDSExamGenerator:
 
         return exam
 
-def get_exam_for_topics(topics: list, num_questions: int = 5) -> str:
+def get_exam_for_topics(topics: list, num_questions: int = 5, exam_scope_codes: list = None) -> str:
     generator = EDSExamGenerator()
-    exam_json = generator.generate_balanced_exam(topics, num_questions)
+    exam_json = generator.generate_balanced_exam(topics, num_questions, exam_scope_codes)
     return json.dumps(exam_json, indent=2, ensure_ascii=False)
 
-def get_pop_quiz(eds_x_code: str, note_identifier: str = None, num_questions: int = 5, target_level: str = "A++") -> str:
+def get_pop_quiz(eds_x_code: str, note_identifier: str = None, num_questions: int = 5, target_level: str = "A++", exam_scope_codes: list = None) -> str:
     generator = EDSExamGenerator()
-    exam_json = generator.generate_t2n_pop_quiz(eds_x_code, note_identifier=note_identifier, num_questions=num_questions, target_level=target_level)
+    exam_json = generator.generate_t2n_pop_quiz(eds_x_code, note_identifier=note_identifier, num_questions=num_questions, target_level=target_level, exam_scope_codes=exam_scope_codes)
     return json.dumps(exam_json, indent=2, ensure_ascii=False)
 
 if __name__ == "__main__":

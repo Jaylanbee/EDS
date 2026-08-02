@@ -11,8 +11,30 @@ from src.generate_graph import generate_decision_graph_text
 # Setup Streamlit Page - Standard Layout
 st.set_page_config(page_title="EDS app.py 統一學習駕駛艙", layout="wide")
 
+# Global Session State Init
+if 'global_target_code' not in st.session_state:
+    st.session_state['global_target_code'] = ""
+
 st.title("🖥️ 水循環學習法 統一學習駕駛艙")
 st.markdown("---")
+
+# Task 3: Global Exam Scope Lock
+from src.generate_eds_exam import EDSExamGenerator
+exam_generator = EDSExamGenerator()
+exam_lock_on = st.toggle("🔒 啟動 108 課綱段考衝刺模式", value=False)
+global_locked_codes = None
+
+if exam_lock_on:
+    scopes_dict = exam_generator.get_available_exam_scopes()
+    col_sem, col_exam = st.columns(2)
+    with col_sem:
+        selected_sem = st.selectbox("🎯 選擇段考學期：", list(scopes_dict.keys()), index=0)
+    with col_exam:
+        selected_exam = st.selectbox("📝 選擇段考試次：", scopes_dict[selected_sem], index=0)
+
+    global_locked_codes = exam_generator.get_scope_codes(selected_sem, selected_exam)
+    st.info(f"🔒 **段考邊界已鎖定**（`{selected_sem} / {selected_exam}`）：涵蓋考點 `{global_locked_codes}`")
+    st.markdown("---")
 
 # 3 Top-Level Tabs Layout
 tab1, tab2, tab3 = st.tabs(["🚥 學科紅綠燈視圖", "🎯 考前決勝特訓", "🌟 全人素養"])
@@ -48,10 +70,16 @@ with tab1:
             SELECT item_id, weakness_score
             FROM weakness_stats
             WHERE subject = ?
-            ORDER BY weakness_score DESC
-            LIMIT 10
             """
-            weakness_df = pd.read_sql_query(query, conn, params=(selected_subject,))
+            params = [selected_subject]
+
+            if global_locked_codes:
+                placeholders = ','.join(['?'] * len(global_locked_codes))
+                query += f" AND item_id IN ({placeholders})"
+                params.extend(global_locked_codes)
+
+            query += " ORDER BY weakness_score DESC LIMIT 10"
+            weakness_df = pd.read_sql_query(query, conn, params=params)
             conn.close()
 
             if not weakness_df.empty:
@@ -65,7 +93,29 @@ with tab1:
                 weakness_df['狀態燈號'] = weakness_df['weakness_score'].apply(get_light)
                 weakness_df = weakness_df.rename(columns={'item_id': '弱點代碼 (eds_x_code)', 'weakness_score': '弱點分數'})
 
-                st.dataframe(weakness_df, width="stretch")
+                # Interactive Data Editor for Cross-Tab Sync
+                st.caption("💡 **Tip:** 勾選下方弱點左側的方塊，即可一鍵將該代碼帶入「🎯 考前決勝特訓」中！")
+
+                # We add a boolean column for selection
+                weakness_df.insert(0, '選定特訓', False)
+                edited_df = st.data_editor(
+                    weakness_df,
+                    width="stretch",
+                    hide_index=True,
+                    column_config={
+                        "選定特訓": st.column_config.CheckboxColumn(
+                            "選定特訓", help="選取此弱點作為今日打擊目標", default=False
+                        )
+                    }
+                )
+
+                # Check if any row was selected
+                selected_rows = edited_df[edited_df['選定特訓'] == True]
+                if not selected_rows.empty:
+                    target_code = selected_rows.iloc[0]['弱點代碼 (eds_x_code)']
+                    if st.session_state['global_target_code'] != target_code:
+                        st.session_state['global_target_code'] = target_code
+                        st.toast(f"✅ 已鎖定目標 [{target_code}]！請切換至「🎯 考前決勝特訓」分頁開始作戰。")
             else:
                 st.info(f"目前在 {selected_subject_zh} 科目中沒有明顯的弱點資料。點擊上方「🎲 注入 15 筆會考錯題範例」可即時觀看大數據分析！")
         else:
@@ -125,12 +175,22 @@ with tab2:
                 index=0
             )
 
-        available_notes = reader.get_available_notes(semester_filter=sem_scope)
-        if not available_notes:
-            available_notes = reader.get_available_notes()
+        # Task 2: Advanced Search API usage
+        selected_tags = []
+        search_kw = ""
+        with st.expander("🔍 筆記進階搜尋與標籤過濾 (Task 2)", expanded=False):
+            all_tags = reader.get_all_vault_tags()
+            selected_tags = st.multiselect("🏷️ 篩選 Vault 標籤：", options=all_tags)
+            search_kw = st.text_input("🔍 搜尋筆記關鍵字：", placeholder="例如: 聲音鐘 / 光合作用")
+
+        # Get matching notes using the new search API
+        matching_notes = reader.search_vault_notes(keywords=search_kw, tags=selected_tags, semester_filter=sem_scope)
+        if not matching_notes:
+            st.warning("⚠️ 找不到符合條件的筆記，請放寬搜尋條件。")
+            matching_notes = reader.get_available_notes() # Fallback
 
         with col_note_sel:
-            selected_note = st.selectbox("📚 選擇已轉檔的單元筆記：", available_notes, index=0)
+            selected_note = st.selectbox("📚 選擇已轉檔的單元筆記：", matching_notes, index=0)
 
         # Isolated Sub-tabs for converted note artifacts
         subtab_md, subtab_html, subtab_mind, subtab_quiz = st.tabs(["Markdown 筆記", "🖨️ 典藏 HTML (Pro)", "心智圖 (Mermaid)", "隨堂考卷 (API串接)"])
@@ -252,18 +312,19 @@ with tab2:
         if st.button("📊 產出決勝圖譜"):
             with st.spinner("讀取 RDQ 資料庫與計算 ROI..."):
                 try:
-                    result_text = generate_decision_graph_text(None, available_hours=hours, target_mode=target, target_subject=target_subject)
+                    result_text = generate_decision_graph_text(None, available_hours=hours, target_mode=target, target_subject=target_subject, exam_scope_codes=global_locked_codes)
                     st.text_area("決策輸出：", value=result_text, height=300)
                     st.session_state['graph_generated'] = True
                     st.session_state['target_subject'] = target_subject
                 except Exception as e:
                     st.error(f"發生錯誤：{e}")
 
-        if st.session_state.get('graph_generated'):
+        if st.session_state.get('graph_generated') or st.session_state.get('global_target_code'):
             st.markdown("### ⚠️ PME 考前高壓特訓系統 (Phase 1: PLAN)")
 
             with st.expander("📝 點此設定今日作戰計畫 (未設定不准派題)", expanded=True):
-                pme_goal = st.text_input("1. 今天打擊哪個目標代碼？", placeholder="例如: Bc-Ⅳ-3")
+                default_goal = st.session_state.get('global_target_code', '')
+                pme_goal = st.text_input("1. 今天打擊哪個目標代碼？", value=default_goal, placeholder="例如: Bc-Ⅳ-3")
                 pme_status = st.selectbox("2. 該目標目前燈號狀態？", ["🔴 優先攻堅 (概念錯誤)", "🟡 觀念微調 (推理不足)", "🟢 掌握良好 (看錯題)"])
                 pme_strategy = st.text_area("3. 預計做幾題及求救策略？", placeholder="預計做5題，卡住時會先掙扎3分鐘再看解答。")
 
@@ -280,11 +341,15 @@ with tab2:
                     mods = engine.get_priority_modifiers()
 
                     saved_subject = st.session_state.get('target_subject', target_subject)
-                    roi_df = analyzer.module_d_priority_score(mode=target, personal_modifiers=mods, target_subject=saved_subject)
+                    roi_df = analyzer.module_d_priority_score(mode=target, personal_modifiers=mods, target_subject=saved_subject, exam_scope_codes=global_locked_codes)
 
                     if not roi_df.empty:
+                        # Ensure the globally selected goal from PME is explicitly prioritized
                         top_topics_dicts = roi_df.head(3).to_dict('records')
-                        exam_json = json.loads(get_exam_for_topics(top_topics_dicts, num_questions=5))
+                        if pme_goal and pme_goal not in [t.get('X軸主代碼') for t in top_topics_dicts]:
+                            top_topics_dicts.insert(0, {'X軸主代碼': pme_goal})
+
+                        exam_json = json.loads(get_exam_for_topics(top_topics_dicts, num_questions=5, exam_scope_codes=global_locked_codes))
                         st.session_state['current_exam'] = exam_json
                         st.session_state['pme_streak'] = 0
                         st.success("考卷組裝完成！進入 MONITOR 階段。")

@@ -11,10 +11,10 @@ class EDSAnalyzer:
         # We will use the SQLite DB instead of CSV
         self.db_path = os.getenv('ECOSYSTEM_DB_PATH', os.path.expanduser('~/.education_ecosystem/review_index.db'))
 
-    def _fetch_dynamic_roi_data(self, target_subject: str = None) -> pd.DataFrame:
+    def _fetch_dynamic_roi_data(self, target_subject: str = None, exam_scope_codes: list = None) -> pd.DataFrame:
         """
         Fetches the ROI weights dynamically from the SQLite DB.
-        Allows optional filtering by subject.
+        Allows optional filtering by subject and exam scope.
         """
         if not os.path.exists(self.db_path):
             print(f"Warning: Database not found at {self.db_path}")
@@ -36,6 +36,7 @@ class EDSAnalyzer:
             """
 
             params = []
+            where_clauses = []
             if target_subject:
                 # Need to map Chinese display name to English DB name if it's in Chinese
                 subject_map = {
@@ -46,8 +47,16 @@ class EDSAnalyzer:
                     "英語": "english"
                 }
                 mapped_subject = subject_map.get(target_subject, target_subject)
-                query += " WHERE w.subject = ?"
+                where_clauses.append("w.subject = ?")
                 params.append(mapped_subject)
+
+            if exam_scope_codes:
+                placeholders = ','.join(['?'] * len(exam_scope_codes))
+                where_clauses.append(f"w.item_id IN ({placeholders})")
+                params.extend(exam_scope_codes)
+
+            if where_clauses:
+                query += " WHERE " + " AND ".join(where_clauses)
 
             df = pd.read_sql_query(query, conn, params=params)
             conn.close()
@@ -59,11 +68,11 @@ class EDSAnalyzer:
             print(f"Error fetching dynamic data: {e}")
             return pd.DataFrame()
 
-    def module_b_trap_analysis(self, target_subject: str = None) -> pd.DataFrame:
+    def module_b_trap_analysis(self, target_subject: str = None, exam_scope_codes: list = None) -> pd.DataFrame:
         """
         In the new dynamic architecture, we mock trap analysis based on selection score.
         """
-        df = self._fetch_dynamic_roi_data(target_subject)
+        df = self._fetch_dynamic_roi_data(target_subject, exam_scope_codes)
         if df.empty:
             return pd.DataFrame()
 
@@ -76,12 +85,12 @@ class EDSAnalyzer:
         trap_questions['avg_difficulty'] = trap_questions['exam_weight'] # fallback map
         return trap_questions
 
-    def module_d_priority_score(self, mode: str = "A++", personal_modifiers: dict = None, target_subject: str = None) -> pd.DataFrame:
+    def module_d_priority_score(self, mode: str = "A++", personal_modifiers: dict = None, target_subject: str = None, exam_scope_codes: list = None) -> pd.DataFrame:
         """
         D-1 Priority Score & D-3 ROI & D-4 ROI Ranking.
         This now acts as a dynamic Read-Only consumer of the SQLite DB.
         """
-        df = self._fetch_dynamic_roi_data(target_subject)
+        df = self._fetch_dynamic_roi_data(target_subject, exam_scope_codes)
         if df.empty:
             return pd.DataFrame()
 
