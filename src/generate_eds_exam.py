@@ -130,6 +130,10 @@ class EDSExamGenerator:
                     if not options or len(options) < 4 or any("- (B)" in opt for opt in options) or any("選項 A" in opt for opt in options):
                         continue
 
+                    # Filter out out-of-scope/disputed questions
+                    if "scope_disputed: true" in q_body.lower() or "超綱" in q_body:
+                        continue
+
                     q_obj = {
                         "q_id": q_id,
                         "text": text,
